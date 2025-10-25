@@ -66,7 +66,43 @@ const bankStatementSchema = new mongoose.Schema({
         totalCredits: Number,
         totalTransactions: Number,
         processedDate: Date,
-        categoryBreakdown: mongoose.Schema.Types.Mixed  // Store as a simple object
+        categoryBreakdown: mongoose.Schema.Types.Mixed,  // Store as a simple object
+
+        // ML-Enhanced Analytics
+        riskAnalysis: {
+            compositeRiskScore: Number,
+            riskLevel: String,
+            timestamp: Date,
+            dimensions: {
+                fraudRisk: mongoose.Schema.Types.Mixed,
+                cashFlowRisk: mongoose.Schema.Types.Mixed,
+                overspendingRisk: mongoose.Schema.Types.Mixed,
+                liquidityRisk: mongoose.Schema.Types.Mixed,
+                concentrationRisk: mongoose.Schema.Types.Mixed
+            },
+            alerts: [mongoose.Schema.Types.Mixed],
+            recommendations: [mongoose.Schema.Types.Mixed]
+        },
+
+        financialHealthScore: {
+            score: Number,
+            grade: String,
+            level: String,
+            timestamp: Date,
+            dimensions: mongoose.Schema.Types.Mixed,
+            insights: [mongoose.Schema.Types.Mixed],
+            recommendations: [mongoose.Schema.Types.Mixed],
+            benchmarkComparison: mongoose.Schema.Types.Mixed
+        },
+
+        insights: [mongoose.Schema.Types.Mixed],
+
+        categoryPredictions: [{
+            transactionId: String,
+            predictedCategory: String,
+            confidence: Number,
+            alternatives: [mongoose.Schema.Types.Mixed]
+        }]
     }
 });
 

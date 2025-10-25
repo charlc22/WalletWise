@@ -130,23 +130,26 @@ async function identifyBankFromPdf(pdfPath) {
 function getParserForBank(bankName) {
     const scriptsDir = path.join(__dirname, '..', 'scripts');
 
-    // Map bank names to parser scripts
+    // Map bank names to parser scripts (only for banks with specific parsers)
     const parserMap = {
         "Wells Fargo": "wellsfargo_parser.py",
         "TD Bank": "tdbank_parser.py",
         "Chase": "chase_parser.py"
     };
 
-    const parserFile = parserMap[bankName] || "wellsfargo_parser.py"; // Default to Wells Fargo
-    const parserPath = path.join(scriptsDir, parserFile);
+    const parserFile = parserMap[bankName];
 
-    // Check if parser exists
-    if (!fs.existsSync(parserPath)) {
-        console.warn(`Parser for ${bankName} not found: ${parserPath}. Using Wells Fargo parser as fallback.`);
-        return path.join(scriptsDir, "wellsfargo_parser.py");
+    // If we have a specific parser for this bank, try to use it
+    if (parserFile) {
+        const parserPath = path.join(scriptsDir, parserFile);
+        if (fs.existsSync(parserPath)) {
+            return parserPath;
+        }
     }
 
-    return parserPath;
+    // Fallback to universal parser for all other banks
+    console.log(`Using universal parser for ${bankName}`);
+    return path.join(scriptsDir, "universal_parser.py");
 }
 
 /**
@@ -164,8 +167,26 @@ async function parseBankStatement(pdfPath) {
         const parserScript = getParserForBank(bankName);
         console.log(`Using parser: ${parserScript} for bank: ${bankName}`);
 
-        // Execute the parser
-        const result = await executePythonScript(parserScript, [pdfPath]);
+        let result;
+        try {
+            // Execute the parser
+            result = await executePythonScript(parserScript, [pdfPath]);
+
+            // Check if parsing was successful
+            if (!result.parsedJson || !result.parsedJson.transactions || result.parsedJson.transactions.length === 0) {
+                throw new Error('Parser returned no transactions');
+            }
+        } catch (parserError) {
+            // If the specific parser failed, try the universal parser as fallback
+            console.warn(`Specific parser failed for ${bankName}, trying universal parser:`, parserError.message);
+
+            const universalParser = path.join(__dirname, '..', 'scripts', 'universal_parser.py');
+            result = await executePythonScript(universalParser, [pdfPath]);
+
+            if (result.parsedJson) {
+                result.parsedJson.bankIdentifier = bankName + ' (Universal Parser)';
+            }
+        }
 
         // Add bank identifier to the result if not already present
         if (result.parsedJson && !result.parsedJson.bankIdentifier) {

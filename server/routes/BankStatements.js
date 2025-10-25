@@ -8,6 +8,7 @@ const os = require('os');
 const BankStatement = require('../models/BankStatement');
 const auth = require('../middleware/auth');
 const { parseBankStatement } = require('../utils/pythonExecutor');
+const mlService = require('../ml/mlService');
 
 // Configure multer for PDF uploads
 const upload = multer({
@@ -129,6 +130,29 @@ async function processStatementWithPython(statement) {
         await statement.save();
         console.log('Statement updated with parsed data, ID:', statement._id);
 
+        // Run ML analysis on all user statements
+        try {
+            console.log('Running ML analysis...');
+            const userStatements = await BankStatement.find({
+                userId: statement.userId,
+                isProcessed: true
+            }).sort({ uploadDate: -1 });
+
+            const mlAnalysis = await mlService.analyzeUserFinancials(userStatements);
+
+            // Update the latest statement with ML results
+            statement.mlResults.riskAnalysis = mlAnalysis.riskAnalysis;
+            statement.mlResults.financialHealthScore = mlAnalysis.financialHealthScore;
+            statement.mlResults.insights = mlAnalysis.insights;
+            statement.mlResults.categoryPredictions = mlAnalysis.categoryPredictions;
+
+            await statement.save();
+            console.log('ML analysis completed and saved, ID:', statement._id);
+        } catch (mlError) {
+            console.error('Error running ML analysis:', mlError);
+            // Don't fail the entire process if ML analysis fails
+        }
+
         // Clean up the temporary file
         if (fs.existsSync(tempFilePath)) {
             fs.unlinkSync(tempFilePath);
@@ -219,6 +243,29 @@ router.post('/analyze/:id', auth, async (req, res) => {
         statement.isProcessed = true;
         await statement.save();
 
+        // Run ML analysis on all user statements
+        try {
+            console.log('Running ML analysis...');
+            const userStatements = await BankStatement.find({
+                userId: req.user.userId,
+                isProcessed: true
+            }).sort({ uploadDate: -1 });
+
+            const mlAnalysis = await mlService.analyzeUserFinancials(userStatements);
+
+            // Update the statement with ML results
+            statement.mlResults.riskAnalysis = mlAnalysis.riskAnalysis;
+            statement.mlResults.financialHealthScore = mlAnalysis.financialHealthScore;
+            statement.mlResults.insights = mlAnalysis.insights;
+            statement.mlResults.categoryPredictions = mlAnalysis.categoryPredictions;
+
+            await statement.save();
+            console.log('ML analysis completed and saved, ID:', statement._id);
+        } catch (mlError) {
+            console.error('Error running ML analysis:', mlError);
+            // Don't fail the entire process if ML analysis fails
+        }
+
         // Clean up the temporary file
         if (fs.existsSync(tempFilePath)) {
             fs.unlinkSync(tempFilePath);
@@ -280,6 +327,157 @@ router.delete('/statements/:id', async (req, res) => {
     } catch (err) {
         console.error('Failed to delete statement:', err);
         res.status(500).json({ error: 'Failed to delete statement' });
+    }
+});
+
+// ========== ML Analytics Endpoints ==========
+
+// Get comprehensive ML analytics for user
+router.get('/ml/analytics', auth, async (req, res) => {
+    try {
+        console.log('ML analytics endpoint hit for user:', req.user.userId);
+
+        const statements = await BankStatement.find({
+            userId: req.user.userId,
+            isProcessed: true
+        }).sort({ uploadDate: -1 });
+
+        if (statements.length === 0) {
+            return res.json({
+                message: 'No processed statements found',
+                analytics: mlService.getEmptyAnalytics()
+            });
+        }
+
+        const analytics = await mlService.analyzeUserFinancials(statements);
+
+        res.json({
+            success: true,
+            analytics,
+            statementsAnalyzed: statements.length
+        });
+    } catch (error) {
+        console.error('ML analytics error:', error);
+        res.status(500).json({ error: 'Error generating ML analytics' });
+    }
+});
+
+// Get risk analysis only
+router.get('/ml/risk-analysis', auth, async (req, res) => {
+    try {
+        const statements = await BankStatement.find({
+            userId: req.user.userId,
+            isProcessed: true
+        }).sort({ uploadDate: -1 });
+
+        if (statements.length === 0) {
+            return res.json({
+                message: 'No processed statements found',
+                riskAnalysis: null
+            });
+        }
+
+        const riskAnalysis = await mlService.getRiskAnalysis(statements);
+
+        res.json({
+            success: true,
+            riskAnalysis
+        });
+    } catch (error) {
+        console.error('Risk analysis error:', error);
+        res.status(500).json({ error: 'Error generating risk analysis' });
+    }
+});
+
+// Get financial health score only
+router.get('/ml/health-score', auth, async (req, res) => {
+    try {
+        const statements = await BankStatement.find({
+            userId: req.user.userId,
+            isProcessed: true
+        }).sort({ uploadDate: -1 });
+
+        if (statements.length === 0) {
+            return res.json({
+                message: 'No processed statements found',
+                healthScore: null
+            });
+        }
+
+        const healthScore = await mlService.getHealthScore(statements);
+
+        res.json({
+            success: true,
+            healthScore
+        });
+    } catch (error) {
+        console.error('Health score error:', error);
+        res.status(500).json({ error: 'Error calculating health score' });
+    }
+});
+
+// Get personalized insights only
+router.get('/ml/insights', auth, async (req, res) => {
+    try {
+        const statements = await BankStatement.find({
+            userId: req.user.userId,
+            isProcessed: true
+        }).sort({ uploadDate: -1 });
+
+        if (statements.length === 0) {
+            return res.json({
+                message: 'No processed statements found',
+                insights: []
+            });
+        }
+
+        const insights = await mlService.getInsights(statements);
+
+        res.json({
+            success: true,
+            insights
+        });
+    } catch (error) {
+        console.error('Insights error:', error);
+        res.status(500).json({ error: 'Error generating insights' });
+    }
+});
+
+// Manually trigger ML re-analysis for all user statements
+router.post('/ml/reanalyze', auth, async (req, res) => {
+    try {
+        console.log('ML re-analysis triggered for user:', req.user.userId);
+
+        const statements = await BankStatement.find({
+            userId: req.user.userId,
+            isProcessed: true
+        }).sort({ uploadDate: -1 });
+
+        if (statements.length === 0) {
+            return res.status(400).json({
+                error: 'No processed statements found to analyze'
+            });
+        }
+
+        const analytics = await mlService.analyzeUserFinancials(statements);
+
+        // Update the latest statement with the new ML results
+        const latestStatement = statements[0];
+        latestStatement.mlResults.riskAnalysis = analytics.riskAnalysis;
+        latestStatement.mlResults.financialHealthScore = analytics.financialHealthScore;
+        latestStatement.mlResults.insights = analytics.insights;
+        latestStatement.mlResults.categoryPredictions = analytics.categoryPredictions;
+
+        await latestStatement.save();
+
+        res.json({
+            success: true,
+            message: 'ML analysis completed successfully',
+            analytics
+        });
+    } catch (error) {
+        console.error('ML re-analysis error:', error);
+        res.status(500).json({ error: 'Error re-analyzing statements' });
     }
 });
 
