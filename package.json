@@ -40,7 +40,12 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "server": "node server/index.js",
+    "test-db": "node test_connection.js",
+    "create-demo": "node create_demo_account.js",
+    "export-db": "./migrate_db.sh",
+    "import-db": "./import_to_atlas.sh"
   },
   "eslintConfig": {
     "extends": [
